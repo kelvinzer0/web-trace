@@ -616,7 +616,7 @@ class HARRecorder:
         for e in self.entries:
             if e.type in ("xhr", "fetch"):
                 icon = "📦" if e.request_body else "  "
-                lines.append(f"  {icon} [{e.seq:3d}] {e.method:7s} {e.status:4s} {e.duration_ms:5d}ms  {e.path}")
+                lines.append(f"  {icon} [{e.seq:3d}] {e.method:7s} {str(e.status):4s} {e.duration_ms:5d}ms  {e.path}")
             elif e.type == "websocket":
                 lines.append(f"  🌐 [{e.seq:3d}] WS     OPEN  {len(e.ws_messages):4d}msgs  {e.url[:60]}")
 

@@ -228,15 +228,52 @@
 
     try {
         const canvas = document.createElement('canvas');
-        const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
-        if (gl) {
+        // Ensure WebGL context exists
+        const getContextOrig = HTMLCanvasElement.prototype.getContext;
+        HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+            if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+                attrs = attrs || {};
+                if (!attrs.failIfMajorPerformanceCaveat) {
+                    attrs.failIfMajorPerformanceCaveat = false;
+                }
+            }
+            return getContextOrig.call(this, type, attrs);
+        };
+
+        let gl = canvas.getContext('webgl', { failIfMajorPerformanceCaveat: false })
+                 || canvas.getContext('experimental-webgl', { failIfMajorPerformanceCaveat: false });
+
+        // If WebGL is truly unavailable (headless shell without GPU), mock it
+        if (!gl) {
+            const mockGL = {
+                getParameter: function(param) {
+                    if (param === 0x1F01) return 'Google Inc. (NVIDIA)'; // RENDERER
+                    if (param === 0x1F00) return 'Google Inc. (NVIDIA)'; // VENDOR
+                    if (param === 0x9245) return 'Google Inc. (NVIDIA)'; // UNMASKED_VENDOR
+                    if (param === 0x9246) return 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1080 Direct3D11 vs_5_0 ps_5_0, D3D11)';
+                    if (param === 0x0D33) return 16384; // MAX_TEXTURE_SIZE
+                    if (param === 0x851C) return 16384; // MAX_RENDERBUFFER_SIZE
+                    return null;
+                },
+                getExtension: function(name) {
+                    if (name === 'WEBGL_debug_renderer_info') return {};
+                    return null;
+                },
+                getSupportedExtensions: function() {
+                    return ['WEBGL_debug_renderer_info', 'OES_texture_float', 'OES_standard_derivatives'];
+                },
+                canvas: canvas,
+            };
+            // Patch getContext to return our mock for webgl
+            HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+                if (type === 'webgl' || type === 'experimental-webgl' || type === 'webgl2') {
+                    return mockGL;
+                }
+                return getContextOrig.call(this, type, attrs);
+            };
+        } else {
             const originalGetParameter = gl.getParameter.bind(gl);
             gl.getParameter = new Proxy(originalGetParameter, getParameterProxyHandler);
-        }
-        const gl2 = canvas.getContext('webgl2');
-        if (gl2) {
-            const originalGetParameter2 = gl2.getParameter.bind(gl2);
-            gl2.getParameter = new Proxy(originalGetParameter2, getParameterProxyHandler);
         }
     } catch(e) {}
 
@@ -449,12 +486,32 @@
     // ═══════════════════════════════════════════════════════════════
 
     try {
-        const origImage = window.Image;
-        window.Image = function(...args) {
-            const img = new origImage(...args);
-            return img;
-        };
-        window.Image.prototype = origImage.prototype;
+        // Override naturalWidth/Height for broken images (common headless detection)
+        const origNaturalWidthDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'naturalWidth');
+        const origNaturalHeightDesc = Object.getOwnPropertyDescriptor(HTMLImageElement.prototype, 'naturalHeight');
+
+        Object.defineProperty(HTMLImageElement.prototype, 'naturalWidth', {
+            get: function() {
+                const val = origNaturalWidthDesc.get.call(this);
+                // If image loaded but has 0 dimensions, it's a broken image test
+                if (val === 0 && this.complete && this.src) {
+                    return 1; // Return 1 instead of 0
+                }
+                return val;
+            },
+            configurable: true,
+        });
+
+        Object.defineProperty(HTMLImageElement.prototype, 'naturalHeight', {
+            get: function() {
+                const val = origNaturalHeightDesc.get.call(this);
+                if (val === 0 && this.complete && this.src) {
+                    return 1;
+                }
+                return val;
+            },
+            configurable: true,
+        });
     } catch(e) {}
 
     // ═══════════════════════════════════════════════════════════════
