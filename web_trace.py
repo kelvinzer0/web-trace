@@ -66,24 +66,16 @@ STEALTH_FLAGS = [
     "--force-color-profile=srgb",
 ]
 
-STEALTH_JS = """
-// Remove webdriver flag
-Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-
-// Fix chrome.runtime
-window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
-
-// Fix permissions
-const originalQuery = window.navigator.permissions.query;
-window.navigator.permissions.query = (parameters) =>
-    parameters.name === 'notifications'
-        ? Promise.resolve({ state: Notification.permission })
-        : originalQuery(parameters);
-
-// Fix plugins & languages
-Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
-"""
+def _load_stealth_js() -> str:
+    """Load stealth.js from the same directory as this script."""
+    stealth_path = Path(__file__).parent / "stealth.js"
+    if stealth_path.exists():
+        return stealth_path.read_text()
+    # Fallback minimal stealth
+    return """
+    Object.defineProperty(navigator, 'webdriver', { get: () => false });
+    window.chrome = window.chrome || { runtime: {}, loadTimes: function(){}, csi: function(){} };
+    """
 
 
 def _find_chrome():
@@ -771,7 +763,7 @@ class WebTrace:
         self.page = await self.context.new_page()
 
         if stealth and not cdp_url:
-            await self.page.add_init_script(STEALTH_JS)
+            await self.page.add_init_script(_load_stealth_js())
 
         # Attach recorder
         self.recorder.attach(self.page)

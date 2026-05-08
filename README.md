@@ -2,60 +2,141 @@
 
 Browser-based HAR recorder for bug bounty hunting. Playwright captures XHR/Fetch/WebSocket traffic → export to Python scripts, cURL, or raw JSON for API exploration and vulnerability testing.
 
-No Telegram dependencies. Pure web traffic recording.
-
----
-
-## Fitur
-
-| Category | Detail |
-|----------|--------|
-| **Browser** | Real Chrome via CDP (authentic TLS fingerprint) or bundled Chromium |
-| **Recording** | XHR, Fetch, WebSocket — request + response + headers + body |
-| **Export** | `.har`, Python `requests` script, cURL commands, JSON dump |
-| **REPL** | Interactive: browse, click, record, export, replay — all in one session |
-| **Scope Filter** | Record only specific domains (`--scope example.com`) |
-| **Auth Capture** | Auto-detect `Authorization`, `X-API-Key`, cookies from traffic |
-| **Session Save** | Save/load cookies + localStorage for authenticated testing |
-| **Headless** | Run without GUI for CI/CD or scripted captures |
-| **Multi-Tab** | Track requests across tabs |
-| **Request Replay** | Replay captured requests with modifications |
+**Anti-detection built-in.** Stealth patches remove automation fingerprints — browser terlihat seperti Chrome biasa, bukan Playwright/Puppeteer.
 
 ---
 
 ## Instalasi
 
 ```bash
-# Clone
 git clone https://github.com/kelvinzer0/web-trace.git
 cd web-trace
-
-# Dependencies
 pip install -r requirements.txt
-
-# Browser (jika tidak ada Chrome)
-playwright install chromium
+playwright install chromium   # hanya jika tidak ada Chrome
 ```
 
 ---
 
-## Quick Start
+## Cara Pakai
+
+### 1. Record Traffic (Interactive)
 
 ```bash
-# Buka browser, record semua XHR/Fetch/WebSocket
+# Buka target, browse manual, semua XHR/Fetch/WebSocket tercatat
 python3 web_trace.py https://target.com
 
-# Headless + screenshot + simpan HAR
-python3 web_trace.py https://target.com --headless --ss --har out.har
-
-# Hanya record domain tertentu
+# Filter hanya domain API
 python3 web_trace.py https://target.com --scope api.target.com
 
-# Export langsung ke Python script
-python3 web_trace.py https://target.com --export py
+# Multiple scope
+python3 web_trace.py https://target.com --scope api.target.com --scope cdn.target.com
+```
 
-# Load session sebelumnya (cookies)
-python3 web_trace.py https://target.com --session saved_session.json
+Setelah browser terbuka, **browse manual** (login, klik-klik semua fitur). Setiap API call muncul real-time di terminal:
+
+```
+[REC] Recording XHR/Fetch/WebSocket — scope: api.target.com
+  GET     200    45ms  /api/user/profile
+  POST    200   123ms  /api/quest/claim → ['quest_id'] ← ['ok', 'reward']
+  GET     200    67ms  /api/leaderboard?page=1
+  [WS OPEN]  wss://ws.target.com/realtime
+  [WS RECV]  {"type":"balance_update","data":{"coins":1500}}
+```
+
+Lalu masuk **REPL** untuk analisis & export:
+
+```
+[trace] > requests          ← lihat semua API calls
+[trace] > auth              ← lihat token yang terdeteksi
+[trace] > py exploit.py     ← export ke Python script
+[trace] > curl cmds.sh      ← export ke cURL
+[trace] > har traffic.har   ← simpan .har file
+[trace] > session auth.json ← simpan cookies + localStorage
+[trace] > quit
+```
+
+### 2. Headless + Auto Export
+
+```bash
+# Buka target, tunggu 10 detik, screenshot, simpan HAR, keluar
+python3 web_trace.py https://target.com --headless --delay 10 --ss --har traffic.har
+
+# Headless + langsung export Python script
+python3 web_trace.py https://target.com --headless --delay 8 --export py --har traffic.har
+```
+
+### 3. Dengan Session (Authenticated Testing)
+
+```bash
+# Step 1: Login manual, simpan session
+python3 web_trace.py https://target.com
+[trace] > session authed.json
+[trace] > quit
+
+# Step 2: Load session berikutnya (tidak perlu login ulang)
+python3 web_trace.py https://target.com --session authed.json
+
+# Step 3: Atau auto-save session di akhir
+python3 web_trace.py https://target.com --save-session authed.json
+```
+
+### 4. Dengan Proxy
+
+```bash
+# SOCKS5
+python3 web_trace.py https://target.com --proxy socks5://127.0.0.1:1080
+
+# HTTP proxy
+python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080
+
+# Burp Suite (intercept traffic)
+python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080 --no-stealth
+```
+
+### 5. Custom User-Agent & Viewport
+
+```bash
+# Mobile simulation
+python3 web_trace.py https://target.com \
+  --ua "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15" \
+  --viewport 393x852
+
+# Desktop ultrawide
+python3 web_trace.py https://target.com --viewport 2560x1440
+```
+
+---
+
+## Anti-Detection (Stealth)
+
+Stealth patches aktif secara otomatis. Termasuk:
+
+| Layer | Proteksi |
+|-------|----------|
+| **navigator.webdriver** | Dihapus (false/undefined) |
+| **Chrome object** | chrome.runtime, chrome.loadTimes, chrome.csi — lengkap |
+| **Plugins** | Chrome PDF Plugin, Chrome PDF Viewer, Native Client |
+| **Permissions API** | Notifications konsisten dengan browser asli |
+| **WebGL** | Vendor/renderer di-spoof ke Google Inc. (NVIDIA) |
+| **Canvas** | Noise imperceptible pada toDataURL |
+| **AudioContext** | Noise pada frequency data |
+| **ClientRects** | Noise ±0.0001px (tidak terlihat manusia) |
+| **Screen** | 1920×1080, colorDepth 24 |
+| **Languages** | en-US, en |
+| **Platform** | Konsisten dengan User-Agent |
+| **Hardware** | 8 cores, 8GB RAM |
+| **Connection** | 4G, 10Mbps, rtt 50ms |
+| **SpeechSynthesis** | Realistic voice list |
+| **MediaDevices** | Minimal device list |
+| **toString()** | Semua getter → `[native code]` |
+| **iframe** | webdriver dihapus di iframe juga |
+| **CDP artifacts** | cdc_* properties dihapus |
+
+### Disable Stealth
+
+```bash
+# Untuk testing dengan Burp/mitmproxy (stealth bisa interfere)
+python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080 --no-stealth
 ```
 
 ---
@@ -64,16 +145,16 @@ python3 web_trace.py https://target.com --session saved_session.json
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `url` | (positional) | Target URL untuk dibuka |
-| `--scope` | semua domain | Filter recording ke domain tertentu (bisa multi: `--scope a.com --scope b.com`) |
+| `url` | (positional) | Target URL |
+| `--scope` | semua domain | Filter recording ke domain tertentu (repeatable) |
 | `--headless` | `false` | Tanpa GUI |
 | `--ss` | `false` | Screenshot + exit (setelah delay) |
-| `--delay` | `5` | Detik tunggu sebelum exit (untuk `--ss`) |
+| `--delay` | `5` | Detik tunggu sebelum exit (dengan `--ss`) |
 | `--har` | `web_traffic.har` | Output .har file path |
 | `--export` | `none` | Export format: `har` / `py` / `curl` / `json` |
-| `--session` | `none` | Load session file (cookies + localStorage) |
+| `--session` | `none` | Load session file (cookies + storage) |
 | `--save-session` | `none` | Simpan session setelah selesai |
-| `--ua` | auto | Custom User-Agent string |
+| `--ua` | Chrome Win10 | Custom User-Agent |
 | `--viewport` | `1280x800` | Viewport size (`WxH`) |
 | `--no-stealth` | `false` | Disable stealth patches |
 | `--proxy` | `none` | Proxy (`socks5://host:port` or `http://host:port`) |
@@ -83,63 +164,78 @@ python3 web_trace.py https://target.com --session saved_session.json
 
 ## Interactive REPL
 
-Setelah browser terbuka, masuk REPL mode:
+| Command | Description |
+|---------|-------------|
+| `info` | Page info (text, buttons, links) |
+| `ss` | Screenshot |
+| `click <text>` | Click element by text |
+| `type <selector> <value>` | Type into selector |
+| `scroll` | Scroll down |
+| `nav <url>` | Navigate to URL |
+| `requests` | Show captured requests + summary |
+| `auth` | Show detected auth headers/tokens |
+| `ws` | Show WebSocket connections |
+| `har [file]` | Save HAR |
+| `py [file]` | Export Python script |
+| `curl [file]` | Export cURL commands |
+| `json [file]` | Export JSON dump |
+| `session [file]` | Save session (cookies + storage) |
+| `eval <js>` | Execute JavaScript |
+| `dump` | Dump page HTML |
+| `clear` | Clear recorded requests |
+| `quit` | Exit |
+
+---
+
+## Bug Bounty Workflow
 
 ```
-┌─ web-trace REPL ─────────────────────────────────────────┐
-│  info           Page info (text, buttons, links)          │
-│  ss             Screenshot                                │
-│  click <text>   Click element by text                     │
-│  type <sel> <v> Type into selector                        │
-│  scroll         Scroll down                               │
-│  nav <url>      Navigate to URL                           │
-│  tab            List open tabs                            │
-│  newtab <url>   Open new tab                              │
-│  requests       Show captured requests                    │
-│  auth           Show detected auth headers/tokens         │
-│  ws             Show WebSocket connections                │
-│  har [file]     Save HAR                                  │
-│  py [file]      Export Python script                      │
-│  curl [file]    Export cURL commands                      │
-│  json [file]    Export JSON dump                          │
-│  replay <id>    Replay a captured request                 │
-│  session [file] Save session (cookies + storage)          │
-│  eval <js>      Execute JavaScript                        │
-│  dump           Dump page HTML                            │
-│  clear          Clear recorded requests                   │
-│  quit           Exit                                      │
-└───────────────────────────────────────────────────────────┘
-```
-
-### Contoh REPL Session
-
-```bash
-# Lihat semua API calls yang tercapture
-[trace] > requests
-  GET     200   45ms  /api/user/profile
-  POST    200  123ms  /api/quest/claim → ['quest_id'] ← ['ok', 'reward']
-  GET     200   67ms  /api/leaderboard?page=1
-
-# Lihat auth tokens yang terdeteksi
-[trace] > auth
-  Authorization: Bearer eyJhbGciOiJIUzI1NiIs...
-  X-API-Key: sk-abc123def456
-  Cookie: session_id=xyz789
-
-# Export ke Python script
-[trace] > py exploit.py
-  💾 Exported: exploit.py (5 endpoints)
-
-# Replay request ke-3 dengan payload berbeda
-[trace] > replay 3
-  → Akan minta input untuk modify headers/body sebelum send
+┌────────────────────────────────────────────────────────────────┐
+│ 1. RECON                                                       │
+│    python3 web_trace.py https://target.com \                   │
+│      --scope api.target.com --scope ws.target.com              │
+│    → Login, browse semua fitur, klik semua tombol              │
+│                                                                │
+│ 2. ANALYZE                                                     │
+│    [trace] > requests   ← identifikasi semua endpoint          │
+│    [trace] > auth       ← catat token/cookie                   │
+│    [trace] > ws         ← cek WebSocket messages               │
+│                                                                │
+│ 3. EXPORT                                                      │
+│    [trace] > py exploit.py  ← generate Python script           │
+│    [trace] > session auth.json  ← simpan session               │
+│                                                                │
+│ 4. HUNT                                                        │
+│    Edit exploit.py:                                            │
+│    - Ganti user_id → test IDOR                                 │
+│    - Swap token → test BOLA                                    │
+│    - Inject payload → test SSRF, SQLi, XSS                    │
+│    - Remove auth → test broken auth                            │
+│    - Replay tanpa session → test rate limiting                 │
+│                                                                │
+│ 5. REVISIT                                                     │
+│    python3 web_trace.py https://target.com --session auth.json │
+│    → Tidak perlu login ulang                                   │
+└────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Export: Python Script
+## Arsitektur
 
-Output script siap pakai untuk automation/exploit:
+```
+web-trace/
+├── web_trace.py        # Main tool (Chrome launcher + HAR recorder + REPL + export)
+├── stealth.js          # Anti-detection patches (loaded at runtime)
+├── requirements.txt    # playwright>=1.40.0
+└── README.md
+```
+
+---
+
+## Export Contoh: Python Script
+
+Output dari `[trace] > py exploit.py`:
 
 ```python
 #!/usr/bin/env python3
@@ -148,13 +244,12 @@ Auto-generated from web-trace recording
 Date: 2026-05-08 13:00:00
 Endpoints: 5 | Domains: 1
 """
-
 import requests
 import json
 
 BASE_URL = 'https://api.target.com'
 
-# Auth headers — auto-detected from traffic
+# Auth tokens — auto-detected, replace when expired
 AUTHORIZATION = 'Bearer eyJhbGciOiJIUzI1NiIs...'
 
 session = requests.Session()
@@ -163,94 +258,30 @@ session.headers.update({
 })
 
 def api_user_profile(session=session):
-    """
-    GET /api/user/profile
-    Status: 200 | Duration: 45ms
-    """
+    """GET /api/user/profile — 200, 45ms"""
     url = f'{BASE_URL}/api/user/profile'
     resp = session.get(url)
     resp.raise_for_status()
     return resp.json()
 
 def api_quest_claim(session=session):
-    """
-    POST /api/quest/claim
-    Status: 200 | Duration: 123ms
-    """
+    """POST /api/quest/claim — 200, 123ms"""
     url = f'{BASE_URL}/api/quest/claim'
-
-    # ⬇️ Edit payload
     payload = {
         'quest_id': 'daily_login',  # ← edit
         'timestamp': 1713254400,    # ← edit
     }
-
     resp = session.post(url, json=payload)
     resp.raise_for_status()
     return resp.json()
 
 if __name__ == '__main__':
     results = {}
-
     # results['user_profile'] = api_user_profile()
     # print(json.dumps(results['user_profile'], indent=2))
-
     # results['quest_claim'] = api_quest_claim()
     # print(json.dumps(results['quest_claim'], indent=2))
-
     pass
-```
-
----
-
-## Bug Bounty Workflow
-
-```
-┌──────────────────────────────────────────────────────────────┐
-│  1. Record: python3 web_trace.py https://target.com          │
-│     → Login, browse semua fitur, klik-klik                   │
-│     ↓                                                        │
-│  2. Analyze: REPL → requests → auth                          │
-│     → Identifikasi API endpoints, auth flow, params          │
-│     ↓                                                        │
-│  3. Export: py exploit.py                                    │
-│     → Dapat Python script siap edit                          │
-│     ↓                                                        │
-│  4. Hunt: Edit script → test IDOR, SSRF, BOLA, dll          │
-│     → Modify user_id, swap tokens, inject payloads          │
-│     ↓                                                        │
-│  5. Save session untuk revisit                                │
-│     → --save-session authed.json                             │
-└──────────────────────────────────────────────────────────────┘
-```
-
----
-
-## Arsitektur
-
-```
-web_trace.py
-├── ChromeLauncher          # Find & launch Chrome/Chromium
-│   ├── _find_chrome()      # Detect real Chrome binary
-│   ├── _launch_cdp()       # Launch via CDP (real TLS)
-│   └── _launch_fallback()  # Bundled Chromium + stealth
-├── HARRecorder             # Network traffic capture
-│   ├── _on_request()       # Capture XHR/Fetch requests
-│   ├── _on_response()      # Capture responses
-│   ├── _on_websocket()     # Capture WS connections + messages
-│   ├── to_har()            # Export HAR 1.2 format
-│   ├── to_python()         # Generate Python requests script
-│   ├── to_curl()           # Generate cURL commands
-│   └── detect_auth()       # Auto-detect auth headers/tokens
-├── SessionManager          # Save/load cookies + localStorage
-│   ├── save()              # Export session state
-│   └── load()              # Import session state
-├── WebTrace                # Main orchestrator
-│   ├── start()             # Launch browser + attach recorder
-│   ├── screenshot()        # Capture screenshot
-│   ├── interactive()       # REPL loop
-│   └── close()             # Cleanup
-└── main()                  # CLI entry point
 ```
 
 ---
