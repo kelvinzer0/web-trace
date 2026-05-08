@@ -11,29 +11,33 @@ Browser-based HAR recorder for bug bounty hunting. Playwright captures XHR/Fetch
 ### Via pip (recommended)
 
 ```bash
+# Linux (Debian/Parrot/Kali/Ubuntu)
+pip install git+https://github.com/kelvinzer0/web-trace.git --break-system-packages
+
+# Atau pakai venv (lebih aman)
+python3 -m venv ~/.venv/web-trace
+~/.venv/web-trace/bin/pip install git+https://github.com/kelvinzer0/web-trace.git
+# Tambah ke PATH:
+echo 'export PATH="$HOME/.venv/web-trace/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# Atau pakai pipx (paling mudah)
+pipx install git+https://github.com/kelvinzer0/web-trace.git
+
+# macOS / sudah pakai venv
 pip install git+https://github.com/kelvinzer0/web-trace.git
-
-# Atau clone dulu
-git clone https://github.com/kelvinzer0/web-trace.git
-cd web-trace
-pip install .
-
-# Install browser (jika belum ada Chrome)
-playwright install chromium
 ```
 
-### Via pip editable (development)
+### Dari source
 
 ```bash
 git clone https://github.com/kelvinzer0/web-trace.git
 cd web-trace
-pip install -e .
+pip install . --break-system-packages
+
+# Install browser (jika belum ada Chrome)
 playwright install chromium
 ```
-
-Dependencies (auto-installed):
-- `playwright` — browser automation
-- `curl_cffi` — TLS fingerprint impersonation (JA3/JA4)
 
 ### Verifikasi
 
