@@ -35,6 +35,14 @@ Dependencies (auto-installed):
 - `playwright` — browser automation
 - `curl_cffi` — TLS fingerprint impersonation (JA3/JA4)
 
+### Verifikasi
+
+```bash
+web-trace --help
+# atau
+python3 -m web_trace --help
+```
+
 ---
 
 ## Quick Start
