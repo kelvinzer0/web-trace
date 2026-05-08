@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pyo
+*.har
+*.png
+web_trace_exploit.py
+web_trace_curls.sh
+web_trace_dump.json
+session.json
+.web-trace/
