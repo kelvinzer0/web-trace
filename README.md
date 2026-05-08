@@ -49,22 +49,22 @@ python3 -m web_trace --help
 
 ```bash
 # Interactive — browser terbuka, browse manual, semua API tercatat
-python3 web_trace.py https://target.com
+web-trace https://target.com
 
 # Hanya record domain API tertentu
-python3 web_trace.py https://target.com --scope api.target.com
+web-trace https://target.com --scope api.target.com
 
 # Headless + screenshot + simpan HAR
-python3 web_trace.py https://target.com --headless --delay 10 --ss --har traffic.har
+web-trace https://target.com --headless --delay 10 --ss --har traffic.har
 
 # Langsung export Python script (dengan TLS impersonation)
-python3 web_trace.py https://target.com --headless --delay 8 --export py
+web-trace https://target.com --headless --delay 8 --export py
 
 # Impersonate Safari (TLS fingerprint beda)
-python3 web_trace.py https://target.com --impersonate safari17_0
+web-trace https://target.com --impersonate safari17_0
 
 # Dengan session (cookies tersimpan)
-python3 web_trace.py https://target.com --session authed.json
+web-trace https://target.com --session authed.json
 ```
 
 ---
@@ -102,9 +102,9 @@ Impersonate TLS fingerprint (JA3/JA4) saat export/replay. Request terlihat seper
 
 ```bash
 # Pilih profile
-python3 web_trace.py https://target.com --impersonate chrome120   # default
-python3 web_trace.py https://target.com --impersonate safari17_0
-python3 web_trace.py https://target.com --impersonate firefox120
+web-trace https://target.com --impersonate chrome120   # default
+web-trace https://target.com --impersonate safari17_0
+web-trace https://target.com --impersonate firefox120
 ```
 
 | Profile | Browser | JA3 Hash |
@@ -121,7 +121,7 @@ python3 web_trace.py https://target.com --impersonate firefox120
 
 ```bash
 # Untuk testing dengan Burp/mitmproxy
-python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080 --no-stealth
+web-trace https://target.com --proxy http://127.0.0.1:8080 --no-stealth
 ```
 
 ---
@@ -131,7 +131,7 @@ python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080 --no-steal
 ### 1. Record Traffic (Interactive)
 
 ```bash
-python3 web_trace.py https://target.com --scope api.target.com
+web-trace https://target.com --scope api.target.com
 ```
 
 Browser terbuka → **browse manual** (login, klik semua fitur) → API calls muncul real-time:
@@ -161,42 +161,42 @@ Masuk REPL untuk analisis:
 
 ```bash
 # Screenshot + HAR + Python script
-python3 web_trace.py https://target.com --headless --delay 10 --ss --har out.har --export py
+web-trace https://target.com --headless --delay 10 --ss --har out.har --export py
 
 # Dengan TLS impersonation
-python3 web_trace.py https://target.com --headless --delay 8 --export py --impersonate chrome119
+web-trace https://target.com --headless --delay 8 --export py --impersonate chrome119
 ```
 
 ### 3. Session (Authenticated Testing)
 
 ```bash
 # Simpan session setelah login manual
-python3 web_trace.py https://target.com
+web-trace https://target.com
 [trace] > session authed.json
 [trace] > quit
 
 # Load session berikutnya
-python3 web_trace.py https://target.com --session authed.json
+web-trace https://target.com --session authed.json
 
 # Auto-save session
-python3 web_trace.py https://target.com --save-session authed.json
+web-trace https://target.com --save-session authed.json
 ```
 
 ### 4. Proxy
 
 ```bash
 # SOCKS5
-python3 web_trace.py https://target.com --proxy socks5://127.0.0.1:1080
+web-trace https://target.com --proxy socks5://127.0.0.1:1080
 
 # Burp Suite
-python3 web_trace.py https://target.com --proxy http://127.0.0.1:8080 --no-stealth
+web-trace https://target.com --proxy http://127.0.0.1:8080 --no-stealth
 ```
 
 ### 5. Custom UA / Viewport
 
 ```bash
 # Mobile
-python3 web_trace.py https://target.com \
+web-trace https://target.com \
   --ua "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)" \
   --viewport 393x852
 ```
@@ -311,7 +311,7 @@ if __name__ == '__main__':
 ```
 ┌──────────────────────────────────────────────────────────────────┐
 │ 1. RECON                                                         │
-│    python3 web_trace.py https://target.com \                     │
+│    web-trace https://target.com \                     │
 │      --scope api.target.com --impersonate chrome120              │
 │    → Login, browse semua fitur, klik semua tombol                │
 │                                                                  │
@@ -337,7 +337,7 @@ if __name__ == '__main__':
 │    [trace] > tls safari17_0  ← ganti fingerprint, coba lagi      │
 │                                                                  │
 │ 6. REVISIT                                                       │
-│    python3 web_trace.py https://target.com --session auth.json   │
+│    web-trace https://target.com --session auth.json   │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
