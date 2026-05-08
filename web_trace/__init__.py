@@ -28,7 +28,7 @@ from playwright.async_api import async_playwright
 
 # Optional: curl_cffi for TLS fingerprint impersonation
 try:
-    from tls_fingerprint import TLSClient, ALL_PROFILES, CHROME_PROFILES
+    from .tls_fingerprint import TLSClient, ALL_PROFILES, CHROME_PROFILES
     HAS_CURL_CFFI = True
 except ImportError:
     HAS_CURL_CFFI = False
@@ -74,11 +74,28 @@ STEALTH_FLAGS = [
 ]
 
 def _load_stealth_js() -> str:
-    """Load stealth.js from the same directory as this script."""
-    stealth_path = Path(__file__).parent / "stealth.js"
-    if stealth_path.exists():
-        return stealth_path.read_text()
+    """Load stealth.js from multiple possible locations."""
+    candidates = [
+        Path(__file__).parent / "stealth.js",                    # same dir as script
+        Path(__file__).parent.parent / "stealth.js",             # parent dir
+        Path.home() / ".web-trace" / "stealth.js",               # user home
+        Path("/etc/web-trace/stealth.js"),                       # system
+    ]
+    # Also check importlib resources for pip-installed package
+    try:
+        import importlib.resources as pkg_resources
+        ref = pkg_resources.files("web_trace").joinpath("stealth.js")
+        if ref.is_file():
+            return ref.read_text()
+    except Exception:
+        pass
+
+    for p in candidates:
+        if p.exists():
+            return p.read_text()
+
     # Fallback minimal stealth
+    print("[STEALTH] ⚠️  stealth.js not found, using minimal fallback")
     return """
     Object.defineProperty(navigator, 'webdriver', { get: () => false });
     window.chrome = window.chrome || { runtime: {}, loadTimes: function(){}, csi: function(){} };
