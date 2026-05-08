@@ -319,16 +319,17 @@ class HARRecorder:
         entry.content_type = response.headers.get("content-type", "")
         entry.end_time = time.time()
         entry.duration_ms = round((entry.end_time - entry.start_time) * 1000)
-        # Try body (sync-safe)
+        # Try body (async-safe: skip coroutine, only capture sync responses)
         try:
-            body_bytes = response.body()
-            if isinstance(body_bytes, bytes):
-                text = body_bytes.decode("utf-8", errors="replace")
+            result = response.body()
+            if isinstance(result, bytes):
+                text = result.decode("utf-8", errors="replace")
                 try:
                     entry.response_body = json.loads(text)
                 except (json.JSONDecodeError, TypeError):
                     if len(text) < 100_000:
                         entry.response_body = text
+            # If it's a coroutine, just skip body capture
         except (TypeError, Exception):
             pass
         self.entries.append(entry)
@@ -646,13 +647,18 @@ class HARRecorder:
 
     @staticmethod
     def _make_func_name(method: str, path: str) -> str:
-        clean = path.strip("/").replace("-", "_")
+        clean = path.strip("/").replace("-", "_").replace(".", "_")
         for pfx in ("api_", "v1_", "v2_", "v3_"):
             if clean.startswith(pfx):
                 clean = clean[len(pfx):]
                 break
         clean = "__".join(clean.split("/"))
-        return f"{method.lower()}_{clean}"
+        # Remove non-alphanumeric chars except underscore
+        clean = re.sub(r'[^a-zA-Z0-9_]', '_', clean)
+        # Remove leading digits
+        clean = clean.lstrip('0123456789')
+        name = f"{method.lower()}_{clean}"
+        return name or f"{method.lower()}_request"
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1059,18 +1065,19 @@ class WebTrace:
 
         export = self.kw.get("export")
         if export:
-            ext_map = {"py": ".py", "curl": ".sh", "json": ".json", "har": ".har"}
-            fname = har_path or f"web_trace_export{ext_map.get(export, '.txt')}"
             profile = self.kw.get("impersonate", "chrome120")
             if export == "har":
+                fname = har_path or "web_traffic.har"
                 self.recorder.save_har(fname)
             elif export == "py":
-                Path(fname if fname.endswith(".py") else fname + ".py").write_text(
-                    self.recorder.to_python_script(impersonate=profile))
+                fname = "web_trace_exploit.py"
+                Path(fname).write_text(self.recorder.to_python_script(impersonate=profile))
             elif export == "curl":
-                Path(fname if fname.endswith(".sh") else fname + ".sh").write_text(self.recorder.to_curl_script())
+                fname = "web_trace_curls.sh"
+                Path(fname).write_text(self.recorder.to_curl_script())
             elif export == "json":
-                Path(fname if fname.endswith(".json") else fname + ".json").write_text(self.recorder.to_json())
+                fname = "web_trace_dump.json"
+                Path(fname).write_text(self.recorder.to_json())
             print(f"[EXPORT] {export}: {fname}")
 
         save_sess = self.kw.get("save_session")
@@ -1078,7 +1085,20 @@ class WebTrace:
             await SessionManager.save(self.context, save_sess)
 
         if self.browser:
-            await self.browser.close()
+            try:
+                await self.browser.close()
+            except Exception:
+                pass
+        # Kill Chrome process if we launched one
+        if hasattr(self, '_chrome_proc') and self._chrome_proc:
+            try:
+                self._chrome_proc.terminate()
+                self._chrome_proc.wait(timeout=3)
+            except Exception:
+                try:
+                    self._chrome_proc.kill()
+                except Exception:
+                    pass
         print("[TRACE] Done.")
 
 
@@ -1140,4 +1160,8 @@ Examples:
 
 
 if __name__ == "__main__":
+    # Suppress asyncio cleanup warnings from Chrome subprocess
+    import warnings
+    warnings.filterwarnings("ignore", message=".*Event loop is closed.*")
+    warnings.filterwarnings("ignore", message=".*was never awaited.*")
     main()
