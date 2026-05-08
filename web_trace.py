@@ -26,6 +26,13 @@ from pathlib import Path
 
 from playwright.async_api import async_playwright
 
+# Optional: curl_cffi for TLS fingerprint impersonation
+try:
+    from tls_fingerprint import TLSClient, ALL_PROFILES, CHROME_PROFILES
+    HAS_CURL_CFFI = True
+except ImportError:
+    HAS_CURL_CFFI = False
+
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # Chrome Launcher
@@ -484,7 +491,7 @@ class HARRecorder:
         Path(path).write_text(json.dumps(self.to_har(), indent=2, ensure_ascii=False))
         return path
 
-    def to_python_script(self) -> str:
+    def to_python_script(self, impersonate: str = "chrome120") -> str:
         xhr = [e for e in self.entries if e.type in ("xhr", "fetch") and 200 <= e.status < 400]
         if not xhr:
             return "# No XHR/Fetch requests captured."
@@ -502,9 +509,15 @@ class HARRecorder:
             f"Auto-generated from web-trace recording",
             f"Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"Endpoints: {len(xhr)} | Domains: {len(by_domain)}",
+            f"TLS fingerprint: {impersonate} (Chrome JA3/JA4)",
+            "",
+            "Uses curl_cffi for TLS fingerprint impersonation.",
+            "Requests look like real Chrome at the network layer.",
+            "",
+            "Install: pip install curl_cffi",
             '"""',
             "",
-            "import requests",
+            "from curl_cffi.requests import Session",
             "import json",
             "",
         ]
@@ -539,7 +552,7 @@ class HARRecorder:
                     lines.append(f"{vn} = '{v}'")
                 lines.append("")
 
-            lines.append(f"{var} = requests.Session()")
+            lines.append(f"{var} = Session(impersonate='{impersonate}')")
             if domain_auth:
                 lines.append(f"{var}.headers.update({{")
                 for kl, (k, v) in domain_auth.items():
@@ -707,6 +720,10 @@ class WebTrace:
                 f"--window-size={viewport['width']},{viewport['height']}",
                 f"--user-agent={ua}",
                 f"--user-data-dir={profile}",
+                # TLS/HTTP2 fingerprint matching
+                "--disable-features=AcceptCHFrame,MediaRouter,DialMediaRouteProvider",
+                "--enable-features=NetworkService,NetworkServiceInProcess",
+                "--cipher-suite-blacklist=0x0033,0x0039,0x009C,0x009D",
             ]
             if headless:
                 args.append("--headless=new")
@@ -799,9 +816,11 @@ class WebTrace:
 │  auth           Show detected auth headers/tokens         │
 │  ws             Show WebSocket connections                │
 │  har [file]     Save HAR                                  │
-│  py [file]      Export Python script                      │
+│  py [file]      Export Python script (with curl_cffi)     │
 │  curl [file]    Export cURL commands                      │
 │  json [file]    Export JSON dump                          │
+│  replay <id>    Replay request with TLS impersonation     │
+│  tls [profile]  Show/set TLS profile                      │
 │  session [file] Save session (cookies + storage)          │
 │  eval <js>      Execute JavaScript                        │
 │  dump           Dump page HTML                            │
@@ -921,8 +940,9 @@ class WebTrace:
 
             elif action == "py":
                 f = parts[1] if len(parts) > 1 else "web_trace_exploit.py"
-                Path(f).write_text(self.recorder.to_python_script())
-                print(f"  💾 Python: {f}")
+                profile = self.kw.get("impersonate", "chrome120")
+                Path(f).write_text(self.recorder.to_python_script(impersonate=profile))
+                print(f"  💾 Python: {f} (TLS: {profile})")
 
             elif action == "curl":
                 f = parts[1] if len(parts) > 1 else "web_trace_curls.sh"
@@ -954,6 +974,80 @@ class WebTrace:
                 self.recorder.clear()
                 print("  Cleared.")
 
+            elif action == "replay" and len(parts) > 1:
+                if not HAS_CURL_CFFI:
+                    print("  ⚠️  curl_cffi not installed. pip install curl_cffi")
+                    continue
+                try:
+                    seq = int(parts[1])
+                except ValueError:
+                    print("  Usage: replay <seq_number>  (e.g., replay 3)")
+                    continue
+                target = None
+                for e in self.recorder.entries:
+                    if e.seq == seq and e.type in ("xhr", "fetch"):
+                        target = e
+                        break
+                if not target:
+                    print(f"  Request #{seq} not found.")
+                    continue
+
+                profile = self.kw.get("impersonate", "chrome120")
+                print(f"\n  🔁 Replaying [{seq}] {target.method} {target.path}")
+                print(f"  TLS profile: {profile}")
+                print(f"  Original status: {target.status}")
+
+                # Allow user to modify headers
+                auth = self.recorder.get_auth()
+                headers = {}
+                for k, v in target.request_headers.items():
+                    kl = k.lower()
+                    if kl in ("authorization", "x-api-key", "cookie", "x-auth-token", "x-csrf-token"):
+                        headers[k] = v
+                    elif kl not in ("host", "connection", "content-length", "accept-encoding",
+                                     "user-agent", "sec-fetch-dest", "sec-fetch-mode",
+                                     "sec-fetch-site", "sec-ch-ua", "sec-ch-ua-mobile",
+                                     "sec-ch-ua-platform"):
+                        headers[k] = v
+
+                body = target.request_body
+                if body:
+                    print(f"  Body: {body[:200]}")
+                    modify = input("  Modify body? (y/N): ").strip().lower()
+                    if modify == "y":
+                        body = input("  New body: ").strip() or body
+
+                try:
+                    client = TLSClient(impersonate=profile, headers=headers)
+                    resp = client.request(target.method, target.url, data=body)
+                    print(f"\n  ✅ Response: {resp.status_code}")
+                    print(f"  Headers: {dict(list(resp.headers.items())[:5])}")
+                    try:
+                        print(f"  Body: {resp.text[:500]}")
+                    except Exception:
+                        print(f"  Body: <binary {len(resp.content)} bytes>")
+                    client.close()
+                except Exception as e:
+                    print(f"  ❌ Error: {e}")
+
+            elif action == "tls":
+                profile = self.kw.get("impersonate", "chrome120")
+                if len(parts) > 1:
+                    new_profile = parts[1]
+                    if HAS_CURL_CFFI and new_profile in ALL_PROFILES:
+                        self.kw["impersonate"] = new_profile
+                        print(f"  TLS profile: {new_profile}")
+                    else:
+                        print(f"  Unknown profile: {new_profile}")
+                        if HAS_CURL_CFFI:
+                            print(f"  Available: {', '.join(ALL_PROFILES.keys())}")
+                        else:
+                            print("  ⚠️  curl_cffi not installed.")
+                else:
+                    print(f"  Current: {profile}")
+                    if HAS_CURL_CFFI:
+                        print(f"  Available: {', '.join(ALL_PROFILES.keys())}")
+
             else:
                 print(f"  Unknown: {cmd}")
 
@@ -967,10 +1061,12 @@ class WebTrace:
         if export:
             ext_map = {"py": ".py", "curl": ".sh", "json": ".json", "har": ".har"}
             fname = har_path or f"web_trace_export{ext_map.get(export, '.txt')}"
+            profile = self.kw.get("impersonate", "chrome120")
             if export == "har":
                 self.recorder.save_har(fname)
             elif export == "py":
-                Path(fname if fname.endswith(".py") else fname + ".py").write_text(self.recorder.to_python_script())
+                Path(fname if fname.endswith(".py") else fname + ".py").write_text(
+                    self.recorder.to_python_script(impersonate=profile))
             elif export == "curl":
                 Path(fname if fname.endswith(".sh") else fname + ".sh").write_text(self.recorder.to_curl_script())
             elif export == "json":
@@ -1017,6 +1113,9 @@ Examples:
     p.add_argument("--no-stealth", action="store_true", help="Disable stealth patches")
     p.add_argument("--proxy", help="Proxy (socks5://host:port or http://host:port)")
     p.add_argument("--timeout", type=int, default=60000, help="Navigation timeout (ms)")
+    p.add_argument("--impersonate", default="chrome120",
+                   help="TLS fingerprint profile for replay (default: chrome120). "
+                        "Options: chrome120, chrome119, chrome116, safari17_0, firefox120, etc.")
     args = p.parse_args()
 
     trace = WebTrace(
